@@ -7,6 +7,7 @@ from qtpy import QtGui
 
 import labelme.utils
 
+from labelme.post_proc import getPanoRectangle
 
 
 # TODO(unknown):
@@ -106,6 +107,11 @@ class Shape(object):
         x2, y2 = pt2.x(), pt2.y()
         return QtCore.QRectF(x1, y1, x2 - x1, y2 - y1)
 
+
+
+
+
+
     def paint(self, painter, move_shape = False):
         if self.points:
             color = self.select_line_color \
@@ -119,10 +125,14 @@ class Shape(object):
             vrtx_path = QtGui.QPainterPath()
 
             if self.shape_type == 'rectangle':
-                assert len(self.points) in [1, 2]
+                assert len(self.points) in [1, 2, 3]
                 if len(self.points) == 2:
                     rectangle = self.getRectFromLine(*self.points)
                     line_path.addRect(rectangle)
+
+                if len(self.points) == 3:
+                    self.drawPanoRectFromPoints(painter)
+
                 for i in range(len(self.points)):
                     self.drawVertex(vrtx_path, i)
             elif self.shape_type == "circle":
@@ -135,54 +145,8 @@ class Shape(object):
             elif self.shape_type == "linestrip":
                 #line_path.moveTo(self.points[0])
                 for i, p in enumerate(self.points):
-                    #line_path.lineTo(p)
                     self.drawVertex(vrtx_path, i)
-
-                self.drawBoundaryVertex(vrtx_path, not move_shape) #ADD BY RC
-
-                p_y_ = 10
-                if len(self.points)>0 and self.points[0].y()>256:
-                    p_y_ = 510
-                pen = QtGui.QPen(QtGui.QColor(155, 0, 0))
-                pen.setStyle(QtCore.Qt.CustomDashLine)
-                pen.setDashPattern([6, 6, 6, 6])
-                painter.setPen(pen)
-                for i, p in enumerate(self.points):
-                    v_path = QtGui.QPainterPath()
-                    v_path.moveTo(QtCore.QPoint(p.x(), 10))
-                    v_path.lineTo(QtCore.QPoint(p.x(), 510))
-                    # v_path.moveTo(p)
-                    #v_path.lineTo(QtCore.QPoint(p.x(), p_y_))
-                    painter.drawPath(v_path)
-
-                pen = QtGui.QPen(QtGui.QColor(0, 0, 0))
-                painter.setPen(pen)
-                if len(self.points) > 2:
-                    cor_points = []
-                    for point in self.points:
-                        cor_points.append([point.x(), point.y()])
-                    pxy = labelme.np_coor2xy(np.array(cor_points))
-                    for i in np.arange(len(pxy)):
-                        v1 = pxy[i - 1] - pxy[i]
-                        v2 = pxy[(i + 1) % (len(pxy))] - pxy[i]
-                        theta = 180 * np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))) / np.pi
-                        painter.drawText(self.points[i], str(round(theta, 1)))
-                pen = QtGui.QPen(color)
-                pen.setWidth(max(1, int(round(2.0 / self.scale))))
-                painter.setPen(pen)
-                # if len(self.points) < 3:
-                #     line_path.moveTo(self.points[0])
-                #     for i, p in enumerate(self.points):
-                #         line_path.lineTo(p)
-                #
-                # #line_path.moveTo(self.points[0])
-                # for i, p in enumerate(self.points):
-                #     #line_path.lineTo(p)
-                #     self.drawVertex(vrtx_path, i)
-                #
-                # if len(self.points) >= 3:
-                #     self.drawBoundaryVertex(vrtx_path) #ADD BY RC
-
+                self.drawPanoBoundary(painter)
             else:
                 line_path.moveTo(self.points[0])
                 # Uncommenting the following line will draw 2 paths
@@ -199,11 +163,80 @@ class Shape(object):
             painter.drawPath(line_path)
             painter.drawPath(vrtx_path)
             painter.fillPath(vrtx_path, self.vertex_fill_color)
-
             if self.fill:
                 color = self.select_fill_color \
                     if self.selected else self.fill_color
                 painter.fillPath(line_path, color)
+
+    # Add by raocong
+    def drawPanoRectFromPoints(self, painter):
+        [pt1, pt2, pt3] = self.points
+        # (pt1, pt3) is vertical to (pt2, pt3)
+        line1, line2 = getPanoRectangle([pt1.x(), pt1.y()], [pt2.x(), pt2.y()], [pt1.x(), pt3.y()])
+
+        color = self.select_line_color if self.selected else QtGui.QColor(0, 0, 255)
+        pen = QtGui.QPen(color)
+        pen.setWidth(max(1, int(round(2.0 / self.scale))))
+        painter.setPen(pen)
+
+        si = 1 + np.where(np.abs(line1[1:, 0] - line1[:len(line1)-1, 0]) > 10)[0]
+        si = [0] if len(si) == 0 else [0] + list(si)
+        si = si + [len(line1)]
+        line_path = QtGui.QPainterPath()
+        for k in range(len(si) - 1):
+            s = si[k]
+            e = si[k+1]
+            polygon = QtGui.QPolygonF()
+            for i in np.arange(s, e, 1):
+                polygon.append(QtCore.QPoint(line1[i, 0], line1[i, 1]))
+            for i in np.arange(e-1, s-1, -1):
+                polygon.append(QtCore.QPoint(line2[i, 0], line2[i, 1]))
+            polygon.append(QtCore.QPoint(line1[s, 0], line1[s, 1]))
+            line_path.addPolygon(polygon)
+
+        painter.drawPath(line_path)
+        if self.fill:
+            color = self.select_fill_color \
+                if self.selected else self.fill_color
+            painter.fillPath(line_path, color)
+
+    # Add by raocong
+    def drawPanoBoundary(self, painter):
+        cor_points = []
+        for point in self.points:
+            cor_points.append([point.x(), point.y()])
+        bon_points = labelme.bon_line(np.array(cor_points), len(cor_points)>2)
+        path = QtGui.QPainterPath()
+        for ps in bon_points:
+            path.addEllipse(ps[0], ps[1], 1 / 2.0, 1 / 2.0)
+        color = self.select_line_color if self.selected else QtGui.QColor(0, 255, 255)
+        pen = QtGui.QPen(color)
+        pen.setWidth(max(1, int(round(2.0 / self.scale))))
+        painter.setPen(pen)
+        painter.drawPath(path)
+
+        auxiliary_line = True
+        if auxiliary_line:
+            # 2. draw dashline
+            pen = QtGui.QPen(QtGui.QColor(155, 0, 0))
+            pen.setStyle(QtCore.Qt.CustomDashLine)
+            pen.setDashPattern([6, 6, 6, 6])
+            painter.setPen(pen)
+            for i, p in enumerate(self.points):
+                v_path = QtGui.QPainterPath()
+                v_path.moveTo(QtCore.QPoint(p.x(), 10))
+                v_path.lineTo(QtCore.QPoint(p.x(), 510))
+                painter.drawPath(v_path)
+            # 3. show angle values
+            pen = QtGui.QPen(QtGui.QColor(0, 0, 0))
+            painter.setPen(pen)
+            if len(self.points) > 2:
+                pxy = labelme.np_coor2xy(np.array(cor_points))
+                for i in np.arange(len(pxy)):
+                    v1 = pxy[i - 1] - pxy[i]
+                    v2 = pxy[(i + 1) % (len(pxy))] - pxy[i]
+                    theta = 180 * np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))) / np.pi
+                    painter.drawText(self.points[i], str(round(theta, 1)))
 
     def drawVertex(self, path, i):
         d = self.point_size / self.scale
@@ -222,26 +255,6 @@ class Shape(object):
             path.addEllipse(point, d / 2.0, d / 2.0)
         else:
             assert False, "unsupported vertex shape"
-
-    def drawBoundaryVertex(self, path, side = True):        ## raocong
-        # print(labelme.np_coorx2u(23))
-        points = self.points
-
-        cor_points = []
-        for point in points:
-            cor_points.append([point.x(), point.y()])
-
-        bon_points = labelme.bon_line(np.array(cor_points), side)
-        # if side:
-        #     bon_points = labelme.bon_line(np.array(cor_points)[[0,np.min(2, len(cor_points))],:], side)
-        # else:
-        #     bon_points = labelme.bon_line(np.array(cor_points), side)
-
-        index = np.arange(len(bon_points))//2
-        for ps in bon_points:
-            path.addEllipse(ps[0], ps[1], 1 / 2.0, 1 / 2.0)
-
-
 
     def nearestVertex(self, point, epsilon):
         min_distance = float('inf')
@@ -321,3 +334,5 @@ class Shape(object):
 
     def __setitem__(self, key, value):
         self.points[key] = value
+
+

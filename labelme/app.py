@@ -440,10 +440,10 @@ class MainWindow(QtWidgets.QMainWindow):
             # menu shown at right click
             menu=(
                 #createMode,
-                #createRectangleMode,
-                #createCircleMode,
+                createRectangleMode,
+                createCircleMode,
                 #createLineMode,
-                #createPointMode,
+                createPointMode,
                 createLineStripMode,
                 editMode,
                 edit,

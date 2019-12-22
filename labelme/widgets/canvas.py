@@ -305,6 +305,10 @@ class Canvas(QtWidgets.QWidget):
                     elif self.createMode in ['rectangle', 'circle', 'line']:
                         assert len(self.current.points) == 1
                         self.current.points = self.line.points
+
+                        if self.createMode == 'rectangle':
+                            # rc, modify for rectangle
+                            self.current.points.append(QtCore.QPoint(self.current.points[0].x(), self.current.points[1].y()))
                         self.finalise()
                     elif self.createMode == 'linestrip':
                         self.current.addPoint(self.line[1])
@@ -421,6 +425,71 @@ class Canvas(QtWidgets.QWidget):
         y2 = (rect.y() + rect.height() - 1) - point.y()
         self.offsets = QtCore.QPoint(x1, y1), QtCore.QPoint(x2, y2)
 
+
+    def panoLinesSetting(self, line_shapes, paint):
+        s = 1
+        if line_shapes[0]:
+            s = 0 if (line_shapes[0].shape_type == 'linestrip') else 1
+
+        show_vertical_edge = True
+        if show_vertical_edge & (s == 0):
+            points = line_shapes[0].points
+            if (len(points) > 1):
+                l1_a = np.array([points[-2].x(), points[-2].y()])
+                l1_b = np.array([points[-1].x(), points[-1].y()])
+
+                l2_a = np.array([points[1].x(), points[1].y()])
+                l2_b = np.array([points[0].x(), points[0].y()])
+
+                lxs = np.hstack((np.arange(0, min(l1_a[0], l2_a[0])), np.arange(max(l1_a[0], l2_a[0]) + 1, 1024)))
+                # lxs = np.hstack((np.arange(0, min(l1_a[0], l1_b[0])), np.arange(max(l1_a[0], l1_b[0]) + 1, 1024)))
+                l1_ys = labelme.calc_vertical_points(l1_a, l1_b, lxs, w=1024, h=512)
+                l2_ys = labelme.calc_vertical_points(l2_a, l2_b, lxs, w=1024, h=512)
+
+                pen = QtGui.QPen(QtGui.QColor(255, 255, 0))
+                pen.setWidth(1)
+                paint.setPen(pen)
+                for x, y in zip(lxs, l1_ys):
+                    if (y - 256) * (l1_a[1] - 256) > 0:
+                        paint.drawEllipse(x - 0.5, y - 0.5, 1, 1)
+                pen = QtGui.QPen(QtGui.QColor(255, 0, 255))
+                pen.setWidth(1)
+                paint.setPen(pen)
+                for x, y in zip(lxs, l2_ys):
+                    if (y - 256) * (l2_a[1] - 256) > 0:
+                        paint.drawEllipse(x - 1, y - 1, 2, 2)
+
+        show_connect_line = True
+        if show_connect_line & (len(line_shapes) > 1):
+            pen = QtGui.QPen(QtGui.QColor(255, 0, 0))
+            paint.setPen(pen)
+            shape_num = len(line_shapes)
+            for i in np.arange(s, shape_num-1, 1):
+                 for j in np.arange(i + 1, shape_num, 1):
+                     line_num = min(len(line_shapes[i].points), len(line_shapes[j].points))
+                     for k in np.arange(line_num):
+                         v_path = QtGui.QPainterPath()
+                         v_path.moveTo(line_shapes[i].points[k])
+                         v_path.lineTo(line_shapes[j].points[k])
+                         p_1 = line_shapes[i].points[k]
+                         p_2 = line_shapes[j].points[k]
+                         if abs(p_1.x()-p_2.x())<20:
+                             line_shapes[i].points[k].setX(p_2.x())
+                         if p_1.x()==p_2.x():
+                             pen.setWidth(3)
+                         else:
+                             pen.setWidth(1)
+                         paint.setPen(pen)
+                         paint.drawPath(v_path)
+
+        
+
+    # def boundedMoveVertex(self, pos):
+    #     index, shape = self.hVertex, self.hShape
+    #     point = shape[index]
+    #     if self.outOfPixmap(pos):
+    #         pos = self.intersectionPoint(point, pos)
+    #     shape.moveVertexBy(index, pos - point)
     def boundedMoveVertex(self, pos):
         index, shape = self.hVertex, self.hShape
         point = shape[index]
@@ -428,13 +497,17 @@ class Canvas(QtWidgets.QWidget):
             pos = self.intersectionPoint(point, pos)
         shape.moveVertexBy(index, pos - point)
 
-        # raocong
-        shapes_num = len(self.shapes)
-        for tmp_shape in self.shapes:
-            if len(tmp_shape)>index:
-                tmp_shape.points[index].setX(pos.x())
-        # raocong
+        # rc, modify
+        if shape.shape_type == 'rectangle':
+            if index != 1:
+                shape.points[2 - index].setX(pos.x())
 
+        if shape.shape_type == 'linestrip':
+            shapes_num = len(self.shapes)
+            for tmp_shape in self.shapes:
+                if tmp_shape.shape_type == 'linestrip':
+                    if len(tmp_shape) > index:
+                        tmp_shape.points[index].setX(pos.x())
 
     def boundedMoveShapes(self, shapes, pos):
         if self.outOfPixmap(pos):
@@ -508,6 +581,7 @@ class Canvas(QtWidgets.QWidget):
 
         p.drawPixmap(0, 0, self.pixmap)
         Shape.scale = self.scale
+
         for shape in self.shapes:
             if (shape.selected or not self._hideBackround) and \
                     self.isVisible(shape):
@@ -515,7 +589,7 @@ class Canvas(QtWidgets.QWidget):
                 shape.paint(p)
         if self.current:
             self.current.paint(p)
-            self.line.paint(p, move_shape=True)  # raocong
+            self.line.paint(p)
             if len(self.current.points) > 0:
                 points = []
                 if len(self.current.points) == 1:
@@ -523,85 +597,13 @@ class Canvas(QtWidgets.QWidget):
                 else:
                     points += self.current.points
                     points += self.line
-
-                show_vertical_edge = True
-                if show_vertical_edge:
-                    l1_a = np.array([points[-2].x(), points[-2].y()])
-                    l1_b = np.array([points[-1].x(), points[-1].y()])
-
-                    l2_a = np.array([points[1].x(), points[1].y()])
-                    l2_b = np.array([points[0].x(), points[0].y()])
-
-                    lxs = np.hstack((np.arange(0, min(l1_a[0], l2_a[0])), np.arange(max(l1_a[0], l2_a[0]) + 1, 1024)))
-                    # lxs = np.hstack((np.arange(0, min(l1_a[0], l1_b[0])), np.arange(max(l1_a[0], l1_b[0]) + 1, 1024)))
-                    l1_ys = labelme.calc_vertical_points(l1_a, l1_b, lxs, w=1024, h=512)
-                    l2_ys = labelme.calc_vertical_points(l2_a, l2_b, lxs, w=1024, h=512)
-
-                    pen = QtGui.QPen(QtGui.QColor(255, 255, 0))
-                    pen.setWidth(1)
-                    p.setPen(pen)
-                    for x, y in zip(lxs, l1_ys):
-                        if (y - 256) * (l1_a[1] - 256) > 0:
-                            p.drawEllipse(x - 0.5, y - 0.5, 1, 1)
-
-                    pen = QtGui.QPen(QtGui.QColor(255, 0, 255))
-                    pen.setWidth(1)
-                    p.setPen(pen)
-                    for x, y in zip(lxs, l2_ys):
-                        if (y - 256) * (l2_a[1] - 256) > 0:
-                            p.drawEllipse(x - 1, y - 1, 2, 2)
-                # v0 = self.current[-2]
-                # p0 = np.array([v0.x(), v0.y()])
-                # v1 = self.line[0]
-                # p1 = np.array([v1.x(), v1.y()])
-                # p2x = self.line[1].x()
-                # p2y = labelme.calc_vertical_point(p0, p1, p2x, w=1024, h=512)
-                # pen = QtGui.QPen(QtGui.QColor(255, 255, 0))
-                # pen.setWidth(4)
-                # p.setPen(pen)
-                # p.drawEllipse(p2x-2, p2y-2,4,4)
-
         if self.selectedShapesCopy:
             for s in self.selectedShapesCopy:
                 s.paint(p)
 
 
-        # ================ADD=============================================================
-        pen = QtGui.QPen(QtGui.QColor(255, 0, 0))
-        # pen.setStyle(Qt.CustomDashLine)
-        # pen.setDashPattern([4, 1, 4, 1])
-        p.setPen(pen)
-        tmp_shapes = []
-        if self.current:
-            tmp_shapes.append(self.current)
-        for shape in self.shapes:
-            if shape.shape_type == "linestrip":
-                tmp_shapes.append(shape)
-        shape_num = len(tmp_shapes)
-        if shape_num>=2:
-            for i in np.arange(0, shape_num-1, 1):
-                for j in np.arange(i, shape_num, 1):
-                    line_num = min(len(tmp_shapes[i].points), len(tmp_shapes[j].points))
-                    for k in np.arange(line_num):
-                        v_path = QtGui.QPainterPath()
-                        v_path.moveTo(tmp_shapes[i].points[k])
-                        v_path.lineTo(tmp_shapes[j].points[k])
-
-                        p_1 = tmp_shapes[i].points[k]
-                        p_2 = tmp_shapes[j].points[k]
-
-                        if abs(p_1.x()-p_2.x())<20:
-                            tmp_shapes[i].points[k].setX(p_2.x())
-                        if p_1.x()==p_2.x():
-                            pen.setWidth(3)
-                        else:
-                            pen.setWidth(1)
-                        p.setPen(pen)
-                        p.drawPath(v_path)
-       # # ================ADD=============================================================
-
-
-
+        line_shapes = [self.current] + [shape for shape in self.shapes if shape.shape_type == 'linestrip']
+        self.panoLinesSetting(line_shapes, p)
 
 
         if (self.fillDrawing() and self.createMode == 'polygon' and
@@ -611,7 +613,6 @@ class Canvas(QtWidgets.QWidget):
             drawing_shape.fill = True
             drawing_shape.fill_color.setAlpha(64)
             drawing_shape.paint(p)
-
         p.end()
 
     def transformPos(self, point):
