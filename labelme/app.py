@@ -301,14 +301,17 @@ class MainWindow(QtWidgets.QMainWindow):
             enabled=False,
         )
 
-        print(shortcuts['edit_polygon'])
-
-        vertical_constrain = action('Edit Polygons', self.vertical_constrain, shortcuts['edit_polygon'], enabled=True)   #rc
+        # print(shortcuts['edit_polygon'])
+        # setVertical = action('Edit ', self.vertical_constrain, [shortcuts['edit_polygon']], 'edit1', 'Modify the label of the selected polygon', enabled=True)   #rc
 
 
         editMode = action('Edit Polygons', self.setEditMode,
                           shortcuts['edit_polygon'], 'edit',
                           'Move and edit the selected polygons', enabled=False)
+
+        # label txt, slot, shortcut, icon_path, info, enable
+        verticalMode = action('Set Vertical ', self.vertical_constrain, [shortcuts['edit_polygon']], 'vertical',
+                              'In vertical mode to edit the selected polygon', enabled=False)  # rc
 
         delete = action('Delete Polygons', self.deleteSelectedShape,
                         shortcuts['delete_polygon'], 'cancel',
@@ -434,6 +437,7 @@ class MainWindow(QtWidgets.QMainWindow):
             zoomActions=zoomActions,
             openNextImg=openNextImg, openPrevImg=openPrevImg,
             fileMenuActions=(open_, opendir, save, saveAs, close, quit),
+            verticalMode = verticalMode,
             tool=(),
             editMenu=(edit, copy, delete, None, undo, undoLastPoint,
                       None, color1, color2, None, toggle_keep_prev_mode),
@@ -441,11 +445,12 @@ class MainWindow(QtWidgets.QMainWindow):
             menu=(
                 #createMode,
                 createRectangleMode,
-                createCircleMode,
+                #createCircleMode,
                 #createLineMode,
-                createPointMode,
+                #createPointMode,
                 createLineStripMode,
                 editMode,
+                verticalMode,  # rc
                 edit,
                 copy,
                 delete,
@@ -466,8 +471,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 editMode,
             ),
             onShapesPresent=(saveAs, hideAll, showAll),
-
-            vertical_constrain = vertical_constrain,  # rc
         )
 
         self.canvas.edgeSelected.connect(self.actions.addPoint.setEnabled)
@@ -625,9 +628,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.firstStart = True
         # if self.firstStart:
         #    QWhatsThis.enterWhatsThisMode()
-
-    def vertical_constrain(self): #rc
-        print('helloworld')
 
     def menu(self, title, actions=None):
         menu = self.menuBar().addMenu(title)
@@ -819,9 +819,19 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 raise ValueError('Unsupported createMode: %s' % createMode)
         self.actions.editMode.setEnabled(not edit)
+        self.actions.verticalMode.setEnabled(not edit)
+        self.canvas.setVerticalEditing(edit)
 
     def setEditMode(self):
         self.toggleDrawMode(True)
+        self.actions.verticalMode.setEnabled(True)
+        self.canvas.setVerticalEditing(False)
+
+    def vertical_constrain(self): #rc
+        self.toggleDrawMode(True)
+        self.actions.editMode.setEnabled(True)
+        self.canvas.setVerticalEditing(True)
+        print('helloworld')
 
     def updateFileMenu(self):
         current = self.filename
@@ -1107,6 +1117,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.labelList.clearSelection()
             self.addLabel(self.canvas.setLastLabel(text, flags))
             self.actions.editMode.setEnabled(True)
+            self.actions.verticalMode.setEnabled(True)
             self.actions.undoLastPoint.setEnabled(False)
             self.actions.undo.setEnabled(True)
             self.setDirty()

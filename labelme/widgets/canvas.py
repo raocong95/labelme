@@ -43,6 +43,7 @@ class Canvas(QtWidgets.QWidget):
         self.epsilon = kwargs.pop('epsilon', 10.0)
         super(Canvas, self).__init__(*args, **kwargs)
         # Initialise local state.
+        self.vertical = False
         self.mode = self.EDIT
         self.shapes = []
         self.shapesBackups = []
@@ -143,6 +144,10 @@ class Canvas(QtWidgets.QWidget):
         if not value:  # Create
             self.unHighlight()
             self.deSelectShape()
+
+    def setVerticalEditing(self, value=True):
+        self.vertical = value
+        print(self.vertical)
 
     def unHighlight(self):
         if self.hShape:
@@ -482,7 +487,7 @@ class Canvas(QtWidgets.QWidget):
                          paint.setPen(pen)
                          paint.drawPath(v_path)
 
-        
+
 
     # def boundedMoveVertex(self, pos):
     #     index, shape = self.hVertex, self.hShape
